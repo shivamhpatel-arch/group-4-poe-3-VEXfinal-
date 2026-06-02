@@ -1,9 +1,9 @@
 # ---------------------------------------------------------------------------- #
 #                                                                              #
-# 	Module:       g4-p3-VEXtransport .py                                                      #
-# 	Author:       Shivam, Paxton & Eric                                           #
-# 	Created:      6/2/2026, 10:39:49 AM                                        #
-# 	Description:  Code for POE RECbot final                                 #
+# 	Module:       main.py                                                      #
+# 	Author:       Shivam, Eric & Paxton                                              #
+# 	Created:      6/2/2026, 10:42:34 AM                                        #
+# 	Description:  Code for POE RECbot activity                                 #
 #                                                                              #
 # ---------------------------------------------------------------------------- #
 
@@ -70,6 +70,7 @@ def testInertial():
     """
     brain.screen.clear_screen()
     while (bumpSwitch.pressing() == False):
+        wait(10, MSEC)                      #Debounce the button
         brain.screen.set_cursor(5, 1)
         brain.screen.print("Heading:  " + str(inertial_1.heading()))
         brain.screen.set_cursor(6, 1)
@@ -107,21 +108,25 @@ def driveStraight(distance, setpoint, motorVelocity):
     3. motorVelocity = the velocity for motor (+) => forward and (-) => Reverse
     """
 
-    inertial_1.reset_rotation()
+    inertial_1.reset_rotation()     #Reset the inertial sensor's rotation to 0-degrees before driving
 
+                                    #Set stopping mode for left and motors to reduce lurching
     leftMotor.set_stopping(COAST)
     rightMotor.set_stopping(COAST)
 
-    kP = 0.45          #Proportional constant for driving straight
-                      #Used to calculate the correction term to maintain course
-                      #If the value is too small, correction will occur to slowly
-   
-    wheelDiameter = 4
+    kP = 0.45                       #Proportional constant for driving straight
+                                    #Used to calculate the correction term to maintain course
+                                    #If the value is too small, correction will occur to slowly
+                                    #If the value is too large, overcorrection will occur
+                                    #Determine best value by testing.
 
-    #Calculate the distance we want to travel in terms of encoder ticks
-    #Distance (ticks) = (Distance in inches)
 
-    wheelCircumference = wheelDiameter * math.pi
+    wheelDiameter = 4.              # RECbot wheel diameter is 4 inches
+
+                                    #Calculate the distance we want to travel in terms of encoder ticks
+                                    #Distance (ticks) = (Distance in inches)
+    
+    wheelCircumference = wheelDiameter * math.pi     #Wheel circumference
     distance = (distance / wheelCircumference) * 360 #Distance in ticks
 
     #Reset the motor encoder count to zero before driving
@@ -131,37 +136,46 @@ def driveStraight(distance, setpoint, motorVelocity):
     #Drive forward if the motor velocity is greater than zero
 
     if(motorVelocity > 0):
+       # While loop to drive forward for the given distance
         while(leftMotor.position() < distance):
-            error = (setpoint - inertial_1.rotation())
-            correction = error * kP
+            error = (setpoint - inertial_1.rotation()) #Calculate error to stay on course
+            correction = error * kP                    # Calculate the corrective term
 
+            #Correct motor velocities
             #if error > 0 (setpoint > rotation) => robot is drifting left
             #if error < 0 => robot is drifting to the right
             leftMotor.set_velocity((motorVelocity + correction), PERCENT)
             rightMotor.set_velocity((motorVelocity - correction), PERCENT)
 
+            #Spin motors
             drivetrain.drive(FORWARD)
 
             driveStraightData(error)
 
+        #Stop the motors when you reach the desired distance
         stopMotors()
-
+   
+    #Drive straight backwards if motor velocity < 0
     else:
 
         distance *= -1 #Driving backward requires a negative encoder count value
+        # While loop to drive forward for the given distance
         while(leftMotor.position() > distance):
-            error = (setpoint - inertial_1.rotation())
-            correction = error * kP
+            error = (setpoint - inertial_1.rotation()) #Calculate error to stay on course
+            correction = error * kP                    #Calculate the corrective term
 
+            #Correct motor velocities
             #if error > 0 (setpoint > rotation) => robot is drifting left
             #if error < 0 => robot is drifting to the right
             leftMotor.set_velocity((motorVelocity + correction), PERCENT)
             rightMotor.set_velocity((motorVelocity - correction), PERCENT)
 
+            #Spin motors
             drivetrain.drive(FORWARD)
 
             driveStraightData(error)
 
+        #Stop the motors when you reach the desired distance
         stopMotors()
 
 def turnData(turnError, derivative):
@@ -186,6 +200,7 @@ def pointTurn(setPoint):
 
     brain.screen.clear_screen()      #Clear the screen in preparation for the data
     
+    #Set stopping mode for the motors:
     leftMotor.set_stopping(BRAKE)
     rightMotor.set_stopping(BRAKE)
 
@@ -195,40 +210,45 @@ def pointTurn(setPoint):
     #Want to turn the smallest amount to reach the set point
     if (setPoint > inertial_1.heading()):
         if (abs(difference) <= 180):
-            clockwise = True
+            clockwise = True    #Turn CW
         else:
-            clockwise = False
+            clockwise = False   #Turn CCW
     else:
         if (abs(difference) <= 180):
-            clockwise = False
+            clockwise = False   #Turn CCW
         else:
-            clockwise = True
+            clockwise = True    #Turn CW
 
     #Define kP and kD for clockwise and counterclockwise turns
 
-    if(clockwise):
+    if(clockwise):    #kP & kD for CW turn
         kP = 0.0856
         kD = 0.0415
-    else:
+    else:             #kP & kD for CCW turn
         kP = 0.08535
         kD = 0.0
 
+    #Define maximum turning velocity and previous error
     maxVelocity = 50    #Units: %
     previousError = 0   #Error from the previous iteration 
 
     while(True):
-        turnError = setPoint - inertial_1.heading()
-        derivative = turnError - previousError
+        turnError = setPoint - inertial_1.heading() #Calculate error
+        derivative = turnError - previousError      #Calculate derivative
 
         #Stop the motor and exit the loop if the magnitude of the error and derivative terms are small
+        #terms are sufficiently small to ensure the setpoint is reached and no oscillation occurs
+
 
         if ((abs(turnError) < 1) and (abs(derivative) < 0.2)):
             stopMotors() #Stop the motors
             break        #Exit the while loop
-
+   
+        #Correct the motor velocity with the P & D output
         #This term will be larger than one depending upon the amount of turn required
         turnCorrection = (kP * turnError) + (kD * derivative)
 
+        #If the turnCorrection is > 1 set it equal to 1 to prevent exceeding max. velocity
         if (abs(turnCorrection) > 1):
             turnCorrection = 1
 
@@ -236,17 +256,18 @@ def pointTurn(setPoint):
 
         #Set motor velocity based on the direction and PD output
 
-        if(clockwise):
+        if(clockwise):     #Turn clockwise
             leftMotor.set_velocity(turnVelocity)
             rightMotor.set_velocity(-1 * turnVelocity)
-        else:
+        else:              #Turn counterclockwise
             leftMotor.set_velocity(-1 * turnVelocity)
             rightMotor.set_velocity(turnVelocity)
 
+        #Spin the motors
         leftMotor.spin(FORWARD)
         rightMotor.spin(FORWARD)
 
-        turnData(turnError, derivative)
+        turnData(turnError, derivative) #Print current heading, error, and derivative values
 
         previousError = turnError
 
@@ -272,22 +293,22 @@ def main():
     bump()                #Call the bump() function to begin program execution
     inertialCalibration() #Calibrate the inertial sensor
 
-    driveStraight(90, 0, 75)
-    liftArm(20, 45)
-    wait(1, SECONDS)
-    driveStraight(11 , 0, -50)
-    pointTurn(90)
-    driveStraight(65, 0, 50)
-    pointTurn(50)
-    driveStraight(15, 0, 50)
-    liftArm(20, -45)
-    liftArm(20, 90)
-    driveStraight(2, 0, -50)
-    pointTurn(150)
-    driveStraight(8, 0, -75)
-    pointTurn(90)
-    driveStraight(30, 0, -75)
+    driveStraight(90, 0, 75)   #Drive forward 90 inches
+    liftArm(20, 45)            #Lift arm 45 degrees        
+    wait(1, SECONDS)           #Wait 1 second
+    driveStraight(11 , 0, -50) #Drive backward 11 inches
+    pointTurn(90)              #Turn to 90 degrees
+    driveStraight(65, 0, 50)   #Drive forward 65 inches
+    pointTurn(50)              #Turn to 50 degrees
+    driveStraight(15, 0, 50)   #Drive forward 15 inches
+    liftArm(20, -45)           #Lower arm 45 degrees
+    liftArm(20, 90)            #Lift arm to 90 degrees
+    driveStraight(2, 0, -50)   #Drive backward 2 inches
+    pointTurn(150)             #Turn to 150 degrees
+    driveStraight(8, 0, -75)   #Drive backward 8 inches
+    pointTurn(90)              #Turn to 90 degrees
+    driveStraight(30, 0, -75)  #Drive backward 30 inches
 
 # ------------------------------------------ Call the main() function -------------------------------------------------------------------
 
-main()
+main() 
